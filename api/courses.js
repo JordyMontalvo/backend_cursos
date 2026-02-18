@@ -1,0 +1,173 @@
+const { connectDB } = require('./_db');
+const Course = require('./_Course');
+
+// ─── CORS ────────────────────────────────────────────────────────────────────
+function setCORS(res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+// ─── Main Handler ─────────────────────────────────────────────────────────────
+module.exports = async (req, res) => {
+    setCORS(res);
+    if (req.method === 'OPTIONS') return res.status(200).end();
+
+    try {
+        await connectDB();
+    } catch (err) {
+        return res.status(500).json({ success: false, message: 'Error de conexión a DB', error: err.message });
+    }
+
+    // Extraer segmentos de la URL
+    // Ejemplos:
+    //   /api/courses                                        → solo cursos
+    //   /api/courses/ID                                     → curso por ID
+    //   /api/courses/ID/chapters                            → capítulos
+    //   /api/courses/ID/chapters/CHID                      → capítulo por ID
+    //   /api/courses/ID/chapters/CHID/episodes              → episodios
+    //   /api/courses/ID/chapters/CHID/episodes/EPID        → episodio por ID
+    const urlParts = req.url.split('?')[0].replace(/^\/api\/courses\/?/, '').split('/').filter(Boolean);
+    const courseId   = urlParts[0] || null;
+    const chapterId  = urlParts[2] || null;  // urlParts[1] === 'chapters'
+    const episodeId  = urlParts[4] || null;  // urlParts[3] === 'episodes'
+
+    try {
+        // ── GET /api/courses ──────────────────────────────────────────────────
+        if (req.method === 'GET' && !courseId) {
+            const courses = await Course.find().sort({ createdAt: -1 });
+            return res.json({ success: true, courses });
+        }
+
+        // ── GET /api/courses/:id ──────────────────────────────────────────────
+        if (req.method === 'GET' && courseId && !chapterId) {
+            const course = await Course.findById(courseId);
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            return res.json({ success: true, course });
+        }
+
+        // ── POST /api/courses ─────────────────────────────────────────────────
+        if (req.method === 'POST' && !courseId) {
+            const course = new Course({
+                name:        req.body.name,
+                category:    req.body.category,
+                chapters:    [],
+                videoUrl:    req.body.videoUrl    || '',
+                thumbnail:   req.body.thumbnail   || '/images/default-course.jpg',
+                description: req.body.description || '',
+                featured:    req.body.featured === 'true' || req.body.featured === true
+            });
+            await course.save();
+            return res.json({ success: true, course });
+        }
+
+        // ── PUT /api/courses/:id ──────────────────────────────────────────────
+        if (req.method === 'PUT' && courseId && !chapterId) {
+            const update = {
+                name:        req.body.name,
+                category:    req.body.category,
+                videoUrl:    req.body.videoUrl,
+                thumbnail:   req.body.thumbnail,
+                description: req.body.description,
+                featured:    req.body.featured === 'true' || req.body.featured === true,
+                updatedAt:   Date.now()
+            };
+            Object.keys(update).forEach(k => update[k] === undefined && delete update[k]);
+            const course = await Course.findByIdAndUpdate(courseId, update, { new: true });
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            return res.json({ success: true, course });
+        }
+
+        // ── DELETE /api/courses/:id ───────────────────────────────────────────
+        if (req.method === 'DELETE' && courseId && !chapterId) {
+            const course = await Course.findByIdAndDelete(courseId);
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            return res.json({ success: true, message: 'Curso eliminado' });
+        }
+
+        // ── POST /api/courses/:id/chapters ────────────────────────────────────
+        if (req.method === 'POST' && courseId && urlParts[1] === 'chapters' && !chapterId) {
+            const course = await Course.findById(courseId);
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            course.chapters.push({
+                title:       req.body.title,
+                description: req.body.description || '',
+                order:       course.chapters.length + 1,
+                episodes:    []
+            });
+            await course.save();
+            const newChapter = course.chapters[course.chapters.length - 1];
+            return res.json({ success: true, chapter: newChapter, course });
+        }
+
+        // ── PUT /api/courses/:id/chapters/:chapterId ──────────────────────────
+        if (req.method === 'PUT' && courseId && chapterId && !episodeId) {
+            const course = await Course.findById(courseId);
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            const chapter = course.chapters.id(chapterId);
+            if (!chapter) return res.status(404).json({ success: false, message: 'Capítulo no encontrado' });
+            if (req.body.title)                    chapter.title       = req.body.title;
+            if (req.body.description !== undefined) chapter.description = req.body.description;
+            await course.save();
+            return res.json({ success: true, chapter, course });
+        }
+
+        // ── DELETE /api/courses/:id/chapters/:chapterId ───────────────────────
+        if (req.method === 'DELETE' && courseId && chapterId && !episodeId) {
+            const course = await Course.findById(courseId);
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            course.chapters.pull({ _id: chapterId });
+            await course.save();
+            return res.json({ success: true, message: 'Capítulo eliminado', course });
+        }
+
+        // ── POST /api/courses/:id/chapters/:chapterId/episodes ────────────────
+        if (req.method === 'POST' && courseId && chapterId && urlParts[3] === 'episodes' && !episodeId) {
+            const course = await Course.findById(courseId);
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            const chapter = course.chapters.id(chapterId);
+            if (!chapter) return res.status(404).json({ success: false, message: 'Capítulo no encontrado' });
+            chapter.episodes.push({
+                title:    req.body.title,
+                videoUrl: req.body.videoUrl,
+                duration: req.body.duration || '',
+                order:    chapter.episodes.length + 1
+            });
+            await course.save();
+            const newEp = chapter.episodes[chapter.episodes.length - 1];
+            return res.json({ success: true, episode: newEp, course });
+        }
+
+        // ── PUT /api/courses/:id/chapters/:chapterId/episodes/:episodeId ──────
+        if (req.method === 'PUT' && courseId && chapterId && episodeId) {
+            const course = await Course.findById(courseId);
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            const chapter = course.chapters.id(chapterId);
+            if (!chapter) return res.status(404).json({ success: false, message: 'Capítulo no encontrado' });
+            const episode = chapter.episodes.id(episodeId);
+            if (!episode) return res.status(404).json({ success: false, message: 'Episodio no encontrado' });
+            if (req.body.title)                episode.title    = req.body.title;
+            if (req.body.videoUrl)             episode.videoUrl = req.body.videoUrl;
+            if (req.body.duration !== undefined) episode.duration = req.body.duration;
+            await course.save();
+            return res.json({ success: true, episode, course });
+        }
+
+        // ── DELETE /api/courses/:id/chapters/:chapterId/episodes/:episodeId ───
+        if (req.method === 'DELETE' && courseId && chapterId && episodeId) {
+            const course = await Course.findById(courseId);
+            if (!course) return res.status(404).json({ success: false, message: 'Curso no encontrado' });
+            const chapter = course.chapters.id(chapterId);
+            if (!chapter) return res.status(404).json({ success: false, message: 'Capítulo no encontrado' });
+            chapter.episodes.pull({ _id: episodeId });
+            await course.save();
+            return res.json({ success: true, message: 'Episodio eliminado', course });
+        }
+
+        return res.status(405).json({ success: false, message: 'Ruta no encontrada' });
+
+    } catch (err) {
+        console.error('API Error:', err);
+        return res.status(500).json({ success: false, message: 'Error interno', error: err.message });
+    }
+};

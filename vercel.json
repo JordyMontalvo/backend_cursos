@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/courses/:id/chapters/:chapterId/episodes/:episodeId", "destination": "/api/courses" },
+    { "source": "/api/courses/:id/chapters/:chapterId/episodes",            "destination": "/api/courses" },
+    { "source": "/api/courses/:id/chapters/:chapterId",                     "destination": "/api/courses" },
+    { "source": "/api/courses/:id/chapters",                                "destination": "/api/courses" },
+    { "source": "/api/courses/:id",                                         "destination": "/api/courses" },
+    { "source": "/api/courses",                                             "destination": "/api/courses" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+      ]
+    }
+  ]
+}
