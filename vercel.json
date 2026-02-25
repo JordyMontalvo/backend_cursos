@@ -1,6 +1,20 @@
 {
   "version": 2,
   "rewrites": [
+    { "source": "/api/auth/check-access",              "destination": "/api/auth" },
+    { "source": "/api/auth/register",                  "destination": "/api/auth" },
+    { "source": "/api/auth/login",                     "destination": "/api/auth" },
+    { "source": "/api/auth/me",                        "destination": "/api/auth" },
+
+    { "source": "/api/memberships/subscribe",          "destination": "/api/memberships" },
+    { "source": "/api/memberships/:id",                "destination": "/api/memberships" },
+    { "source": "/api/memberships",                    "destination": "/api/memberships" },
+
+    { "source": "/api/admin/memberships/:id",          "destination": "/api/admin-memberships" },
+    { "source": "/api/admin/memberships",              "destination": "/api/admin-memberships" },
+    { "source": "/api/admin/users/:id/membership",     "destination": "/api/admin-users" },
+    { "source": "/api/admin/users",                    "destination": "/api/admin-users" },
+
     { "source": "/api/courses/:id/chapters/:chapterId/episodes/:episodeId", "destination": "/api/courses" },
     { "source": "/api/courses/:id/chapters/:chapterId/episodes",            "destination": "/api/courses" },
     { "source": "/api/courses/:id/chapters/:chapterId",                     "destination": "/api/courses" },
@@ -12,9 +26,9 @@
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Origin",  "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
       ]
     }
   ]
