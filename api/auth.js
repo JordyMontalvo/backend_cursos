@@ -10,7 +10,12 @@ let User;
 try { User = mongoose.model('User'); } catch {
     const schema = new mongoose.Schema({
         name: { type: String, required: true, trim: true },
+        lastName: { type: String, trim: true },
         email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+        phone: { type: String, trim: true },
+        country: { type: String, trim: true },
+        city: { type: String, trim: true },
+        birthDate: { type: String, trim: true },
         password: { type: String, required: true },
         role: { type: String, enum: ['user', 'admin'], default: 'user' },
         activeMembership: { type: mongoose.Schema.Types.ObjectId, ref: 'Membership', default: null },
@@ -99,6 +104,43 @@ module.exports = async (req, res) => {
         const user = await User.findById(decoded.id).select('-password');
         if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
         return res.json({ success: true, user: { ...user.toObject(), hasMembership: user.hasMembership() } });
+    }
+
+    // ── PUT /api/auth/me ─────────────────────────────────────────
+    if (req.method === 'PUT' && url.endsWith('/me')) {
+        const decoded = verifyToken(req);
+        if (!decoded) return res.status(401).json({ success: false, message: 'Token inválido' });
+        
+        try {
+            const user = await User.findById(decoded.id);
+            if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+            const { name, lastName, phone, country, city, birthDate, currentPassword, newPassword } = req.body;
+            
+            if (name) user.name = name;
+            if (lastName !== undefined) user.lastName = lastName;
+            if (phone !== undefined) user.phone = phone;
+            if (country !== undefined) user.country = country;
+            if (city !== undefined) user.city = city;
+            if (birthDate !== undefined) user.birthDate = birthDate;
+
+            // Password change
+            if (currentPassword && newPassword) {
+                const ok = await user.comparePassword(currentPassword);
+                if (!ok) {
+                    return res.status(400).json({ success: false, message: 'La contraseña actual es incorrecta' });
+                }
+                user.password = newPassword; // it will be hashed by pre-save
+            }
+
+            await user.save();
+            const updatedUser = user.toObject();
+            delete updatedUser.password;
+            
+            return res.json({ success: true, message: 'Perfil actualizado exitosamente', user: { ...updatedUser, hasMembership: user.hasMembership() } });
+        } catch (error) {
+            return res.status(500).json({ success: false, message: 'Error al actualizar perfil', error: error.message });
+        }
     }
 
     // ── GET /api/auth/check-access ───────────────────────────────
