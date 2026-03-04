@@ -10,6 +10,10 @@
     { "source": "/api/memberships/:id",                "destination": "/api/memberships" },
     { "source": "/api/memberships",                    "destination": "/api/memberships" },
 
+    { "source": "/api/admin/banners/:id",              "destination": "/api/admin-banners" },
+    { "source": "/api/admin/banners",                  "destination": "/api/admin-banners" },
+    { "source": "/api/banners",                        "destination": "/api/banners" },
+
     { "source": "/api/admin/memberships/:id",          "destination": "/api/admin-memberships" },
     { "source": "/api/admin/memberships",              "destination": "/api/admin-memberships" },
     { "source": "/api/admin/users/:id/membership",     "destination": "/api/admin-users" },
