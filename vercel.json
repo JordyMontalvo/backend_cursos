@@ -14,6 +14,9 @@
     { "source": "/api/admin/banners",                  "destination": "/api/admin-banners" },
     { "source": "/api/banners",                        "destination": "/api/banners" },
 
+    { "source": "/api/admin/settings",                 "destination": "/api/admin-settings" },
+    { "source": "/api/settings",                       "destination": "/api/settings" },
+
     { "source": "/api/admin/memberships/:id",          "destination": "/api/admin-memberships" },
     { "source": "/api/admin/memberships",              "destination": "/api/admin-memberships" },
     { "source": "/api/admin/users/:id/membership",     "destination": "/api/admin-users" },
