@@ -2,7 +2,7 @@ const { connectDB } = require('./_db');
 const Banner = require('./_Banner');
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'iatibet_zureon_secret_2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'iatibet_zureon_jwt_secret_2024';
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Credentials', true);
