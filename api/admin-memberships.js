@@ -10,6 +10,7 @@ try { Membership = mongoose.model('Membership'); } catch {
         name: { type: String, required: true, trim: true },
         description: { type: String, default: '' },
         price: { type: Number, required: true, min: 0 },
+        currency: { type: String, enum: ['PEN', 'USD'], default: 'PEN' },
         durationDays: { type: Number, required: true, default: 30 },
         badge: { type: String, default: '' },
         color: { type: String, default: '#7C3AED' },
@@ -62,17 +63,29 @@ module.exports = async (req, res) => {
 
     // POST /api/admin/memberships
     if (req.method === 'POST') {
-        const { name, description, price, durationDays, badge, color, features, isActive, order } = req.body;
+        const { name, description, price, currency, durationDays, badge, color, features, isActive, order } = req.body;
         if (!name || price === undefined) return res.status(400).json({ success: false, message: 'Nombre y precio requeridos' });
-        const m = new Membership({ name, description, price, durationDays: durationDays || 30, badge, color, features: features || [], isActive: isActive !== false, order: order || 0 });
+        const m = new Membership({ name, description, price, currency: currency || 'PEN', durationDays: durationDays || 30, badge, color, features: features || [], isActive: isActive !== false, order: order || 0 });
         await m.save();
         return res.json({ success: true, membership: m });
     }
 
     // PUT /api/admin/memberships/:id
     if (req.method === 'PUT' && id) {
-        const { name, description, price, durationDays, badge, color, features, isActive, order } = req.body;
-        const m = await Membership.findByIdAndUpdate(id, { name, description, price, durationDays, badge, color, features, isActive, order, updatedAt: Date.now() }, { new: true });
+        const { name, description, price, currency, durationDays, badge, color, features, isActive, order } = req.body;
+        const updateData = { updatedAt: Date.now() };
+        if (name !== undefined) updateData.name = name;
+        if (description !== undefined) updateData.description = description;
+        if (price !== undefined) updateData.price = price;
+        if (currency !== undefined) updateData.currency = currency;
+        if (durationDays !== undefined) updateData.durationDays = durationDays;
+        if (badge !== undefined) updateData.badge = badge;
+        if (color !== undefined) updateData.color = color;
+        if (features !== undefined) updateData.features = features;
+        if (isActive !== undefined) updateData.isActive = isActive;
+        if (order !== undefined) updateData.order = order;
+
+        const m = await Membership.findByIdAndUpdate(id, updateData, { new: true });
         if (!m) return res.status(404).json({ success: false, message: 'Plan no encontrado' });
         return res.json({ success: true, membership: m });
     }
