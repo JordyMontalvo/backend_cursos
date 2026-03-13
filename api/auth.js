@@ -2,34 +2,46 @@ const { connectDB } = require('./_db');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const https = require('https');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'iatibet_zureon_jwt_secret_2024';
+const GOOGLE_CLIENT_ID    = process.env.GOOGLE_CLIENT_ID    || '';
+const GITHUB_CLIENT_ID    = process.env.GITHUB_CLIENT_ID    || '';
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
+const APP_URL             = process.env.APP_URL             || 'http://localhost:3000';
 
 // ── User model (inline para Vercel serverless) ──────────────────
 let User;
 try { User = mongoose.model('User'); } catch {
     const schema = new mongoose.Schema({
-        name: { type: String, required: true, trim: true },
-        lastName: { type: String, trim: true },
-        email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-        phone: { type: String, trim: true },
-        country: { type: String, trim: true },
-        city: { type: String, trim: true },
-        birthDate: { type: String, trim: true },
-        password: { type: String, required: true },
-        role: { type: String, enum: ['user', 'admin'], default: 'user' },
-        activeMembership: { type: mongoose.Schema.Types.ObjectId, ref: 'Membership', default: null },
+        name:        { type: String, required: true, trim: true },
+        lastName:    { type: String, trim: true },
+        email:       { type: String, required: true, unique: true, lowercase: true, trim: true },
+        phone:       { type: String, trim: true },
+        country:     { type: String, trim: true },
+        city:        { type: String, trim: true },
+        birthDate:   { type: String, trim: true },
+        password:    { type: String, required: false }, // opcional para usuarios OAuth
+        // OAuth fields
+        googleId:    { type: String, sparse: true },
+        githubId:    { type: String, sparse: true },
+        avatar:      { type: String, default: null },
+        provider:    { type: String, enum: ['local', 'google', 'github'], default: 'local' },
+        role:        { type: String, enum: ['user', 'admin'], default: 'user' },
+        activeMembership:    { type: mongoose.Schema.Types.ObjectId, ref: 'Membership', default: null },
         membershipExpiresAt: { type: Date, default: null },
-        membershipPlan: { type: String, default: null },
-        createdAt: { type: Date, default: Date.now },
-        updatedAt: { type: Date, default: Date.now }
+        membershipPlan:      { type: String, default: null },
+        createdAt:   { type: Date, default: Date.now },
+        updatedAt:   { type: Date, default: Date.now }
     });
     schema.pre('save', async function () {
-        if (!this.isModified('password')) return;
-        this.password = await bcrypt.hash(this.password, 12);
+        if (this.password && this.isModified('password')) {
+            this.password = await bcrypt.hash(this.password, 12);
+        }
         this.updatedAt = Date.now();
     });
     schema.methods.comparePassword = async function (p) {
+        if (!this.password) return false;
         return bcrypt.compare(p, this.password);
     };
     schema.methods.hasMembership = function () {
@@ -50,6 +62,77 @@ function verifyToken(req) {
     const token = auth && auth.split(' ')[1];
     if (!token) return null;
     try { return jwt.verify(token, JWT_SECRET); } catch { return null; }
+}
+
+function generateToken(user) {
+    return jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+}
+
+function formatUser(user) {
+    return {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar || null,
+        provider: user.provider || 'local',
+        hasMembership: user.hasMembership ? user.hasMembership() : false,
+        membershipPlan: user.membershipPlan
+    };
+}
+
+// ── OAuth helpers ──────────────────────────────────────────────────
+function fetchHttps(url, opts = {}) {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        const options = {
+            hostname: u.hostname,
+            path: u.pathname + u.search,
+            method: opts.method || 'GET',
+            headers: opts.headers || {}
+        };
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(data); } });
+        });
+        req.on('error', reject);
+        if (opts.body) req.write(opts.body);
+        req.end();
+    });
+}
+
+async function verifyGoogleToken(idToken) {
+    const data = await fetchHttps(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    if (data.error) throw new Error('Token de Google inválido: ' + (data.error_description || data.error));
+    if (GOOGLE_CLIENT_ID && data.aud !== GOOGLE_CLIENT_ID)
+        throw new Error('Token no pertenece a esta aplicación');
+    return { googleId: data.sub, email: data.email, name: data.name, avatar: data.picture };
+}
+
+async function getGithubToken(code) {
+    const params = new URLSearchParams({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code
+    });
+    const data = await fetchHttps('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: params.toString()
+    });
+    if (data.error) throw new Error('Error GitHub token: ' + data.error_description);
+    return data.access_token;
+}
+
+async function getGithubUser(token) {
+    const [user, emails] = await Promise.all([
+        fetchHttps('https://api.github.com/user', { headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'iatibet-app', Accept: 'application/vnd.github.v3+json' } }),
+        fetchHttps('https://api.github.com/user/emails', { headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'iatibet-app', Accept: 'application/vnd.github.v3+json' } })
+    ]);
+    const email = (Array.isArray(emails) ? emails.find(e => e.primary && e.verified)?.email : null) || user.email;
+    if (!email) throw new Error('No se pudo obtener el email de GitHub. Asegúrate de tener un email público o verificado.');
+    return { githubId: String(user.id), email, name: user.name || user.login, avatar: user.avatar_url };
 }
 
 module.exports = async (req, res) => {
@@ -152,6 +235,58 @@ module.exports = async (req, res) => {
         const hasMem = user.hasMembership();
         const hasAccess = hasMem || user.role === 'admin';
         return res.json({ success: true, hasAccess, hasMembership: hasMem, membershipPlan: user.membershipPlan, role: user.role });
+    }
+
+    // ── POST /api/auth/google ─────────────────────────────────────
+    if (req.method === 'POST' && url.endsWith('/google')) {
+        const { token: idToken } = req.body;
+        if (!idToken) return res.status(400).json({ success: false, message: 'Token de Google requerido' });
+        let gData;
+        try { gData = await verifyGoogleToken(idToken); }
+        catch (err) { return res.status(401).json({ success: false, message: err.message }); }
+        try {
+            let user = await User.findOne({ googleId: gData.googleId }) || await User.findOne({ email: gData.email });
+            if (user) {
+                if (!user.googleId) { user.googleId = gData.googleId; user.provider = 'google'; if (!user.avatar) user.avatar = gData.avatar; await user.save(); }
+            } else {
+                user = new User({ name: gData.name, email: gData.email, googleId: gData.googleId, avatar: gData.avatar, provider: 'google' });
+                await user.save();
+            }
+            return res.json({ success: true, token: generateToken(user), user: formatUser(user) });
+        } catch (err) {
+            return res.status(500).json({ success: false, message: 'Error al procesar login con Google', error: err.message });
+        }
+    }
+
+    // ── GET /api/auth/github ── inicia el flujo OAuth redirect ───
+    if (req.method === 'GET' && url.endsWith('/github')) {
+        if (!GITHUB_CLIENT_ID) return res.status(500).json({ success: false, message: 'GitHub OAuth no configurado (falta GITHUB_CLIENT_ID)' });
+        const redirect = `${APP_URL}/api/auth/github/callback`;
+        return res.redirect(302, `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirect)}&scope=user:email`);
+    }
+
+    // ── GET /api/auth/github/callback ────────────────────────────
+    if (req.method === 'GET' && url.includes('/github/callback')) {
+        const qs = new URLSearchParams(req.url.split('?')[1] || '');
+        const code = qs.get('code');
+        const error = qs.get('error');
+        if (error || !code) return res.redirect(302, `/login?error=${error || 'no_code'}`);
+        try {
+            const accessToken = await getGithubToken(code);
+            const ghData = await getGithubUser(accessToken);
+            let user = await User.findOne({ githubId: ghData.githubId }) || await User.findOne({ email: ghData.email });
+            if (user) {
+                if (!user.githubId) { user.githubId = ghData.githubId; user.provider = 'github'; if (!user.avatar) user.avatar = ghData.avatar; await user.save(); }
+            } else {
+                user = new User({ name: ghData.name, email: ghData.email, githubId: ghData.githubId, avatar: ghData.avatar, provider: 'github' });
+                await user.save();
+            }
+            const jwtToken = generateToken(user);
+            const userEncoded = encodeURIComponent(JSON.stringify(formatUser(user)));
+            return res.redirect(302, `/login?oauth_token=${jwtToken}&oauth_user=${userEncoded}`);
+        } catch (err) {
+            return res.redirect(302, `/login?error=${encodeURIComponent(err.message)}`);
+        }
     }
 
     return res.status(404).json({ success: false, message: 'Ruta no encontrada' });
