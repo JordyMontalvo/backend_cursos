@@ -3,6 +3,46 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const https = require('https');
+const nodemailer = require('nodemailer');
+
+const mailUser = process.env.EMAIL_USER || 'soporteiatibetepisodios@gmail.com';
+const mailPassword = process.env.EMAIL_PASS || 'dkgd rsqm mkne zahz';
+
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: mailUser,
+        pass: mailPassword
+    }
+});
+
+async function sendWelcomeEmail(email, name, password) {
+    try {
+        const mailOptions = {
+            from: `"IATIBET" <${mailUser}>`,
+            to: email,
+            subject: '¡Bienvenido a IATIBET!',
+            html: `
+                <div style="font-family: 'Inter', sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; background-color: #f9f9fa; border-radius: 8px;">
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h1 style="color: #6a1b9a;">¡Bienvenido a IATIBET!</h1>
+                    </div>
+                    <p style="font-size: 16px;">Hola <strong>${name}</strong>,</p>
+                    <p style="font-size: 16px;">¡Tu registro ha sido exitoso! Estamos muy emocionados de tenerte con nosotros. A continuación, te compartimos tus credenciales de acceso:</p>
+                    <div style="background-color: #fff; padding: 15px; border-radius: 5px; border-left: 4px solid #6a1b9a; margin: 20px 0;">
+                        <p style="margin: 0; font-size: 16px;"><strong>Usuario / Correo:</strong> ${email}</p>
+                        <p style="margin: 5px 0 0 0; font-size: 16px;"><strong>Contraseña:</strong> ${password}</p>
+                    </div>
+                    <p style="font-size: 14px; color: #666;">Te recomendamos guardar esta información en un lugar seguro. Puedes cambiar tu contraseña desde tu perfil una vez que inicies sesión.</p>
+                    <p style="font-size: 16px; margin-top: 30px;">Atentamente,<br><strong>El equipo de IATIBET</strong></p>
+                </div>
+            `
+        };
+        await transporter.sendMail(mailOptions);
+    } catch (error) {
+        console.error('Error enviando correo de bienvenida:', error);
+    }
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'iatibet_zureon_jwt_secret_2024';
 const GOOGLE_CLIENT_ID    = process.env.GOOGLE_CLIENT_ID    || '';
@@ -156,6 +196,10 @@ module.exports = async (req, res) => {
         if (exists) return res.status(409).json({ success: false, message: 'El email ya está registrado' });
         const user = new User({ name, email, password });
         await user.save();
+        
+        // Enviar correo de bienvenida de forma asincrónica
+        sendWelcomeEmail(email, name, password).catch(console.error);
+
         const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
         return res.json({
             success: true, token,
