@@ -6,7 +6,7 @@ const https = require('https');
 const nodemailer = require('nodemailer');
 
 const mailUser = process.env.EMAIL_USER || 'soporteiatibetepisodios@gmail.com';
-const mailPassword = process.env.EMAIL_PASS || 'dkgd rsqm mkne zahz';
+const mailPassword = process.env.EMAIL_PASS || 'dkgdrsqmmknezahz';
 
 const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -201,8 +201,8 @@ module.exports = async (req, res) => {
         const user = new User({ name, email, password });
         await user.save();
         
-        // Enviar correo de bienvenida de forma asincrónica
-        sendWelcomeEmail(email, name, password).catch(console.error);
+        // Enviar correo de bienvenida esperando su resolución (necesario en Serverless)
+        await sendWelcomeEmail(email, name, password).catch(console.error);
 
         const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
         return res.json({
@@ -301,7 +301,7 @@ module.exports = async (req, res) => {
                 await user.save();
                 
                 // Enviar correo de bienvenida al registrarse la primera vez con Google
-                sendWelcomeEmail(gData.email, gData.name, null, 'google').catch(console.error);
+                await sendWelcomeEmail(gData.email, gData.name, null, 'google').catch(console.error);
             }
             return res.json({ success: true, token: generateToken(user), user: formatUser(user) });
         } catch (err) {
