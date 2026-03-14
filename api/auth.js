@@ -16,8 +16,12 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-async function sendWelcomeEmail(email, name, password) {
+async function sendWelcomeEmail(email, name, password, provider = 'local') {
     try {
+        const passText = provider === 'google' 
+            ? '<em>Iniciaste sesión vinculando tu cuenta de Google. No necesitas contraseña.</em>' 
+            : password;
+
         const mailOptions = {
             from: `"IATIBET" <${mailUser}>`,
             to: email,
@@ -28,12 +32,12 @@ async function sendWelcomeEmail(email, name, password) {
                         <h1 style="color: #6a1b9a;">¡Bienvenido a IATIBET!</h1>
                     </div>
                     <p style="font-size: 16px;">Hola <strong>${name}</strong>,</p>
-                    <p style="font-size: 16px;">¡Tu registro ha sido exitoso! Estamos muy emocionados de tenerte con nosotros. A continuación, te compartimos tus credenciales de acceso:</p>
+                    <p style="font-size: 16px;">¡Tu registro ha sido exitoso! Estamos muy emocionados de tenerte con nosotros. A continuación, te compartimos tu información de acceso:</p>
                     <div style="background-color: #fff; padding: 15px; border-radius: 5px; border-left: 4px solid #6a1b9a; margin: 20px 0;">
                         <p style="margin: 0; font-size: 16px;"><strong>Usuario / Correo:</strong> ${email}</p>
-                        <p style="margin: 5px 0 0 0; font-size: 16px;"><strong>Contraseña:</strong> ${password}</p>
+                        <p style="margin: 5px 0 0 0; font-size: 16px;"><strong>Contraseña:</strong> ${passText}</p>
                     </div>
-                    <p style="font-size: 14px; color: #666;">Te recomendamos guardar esta información en un lugar seguro. Puedes cambiar tu contraseña desde tu perfil una vez que inicies sesión.</p>
+                    <p style="font-size: 14px; color: #666;">Te recomendamos guardar esta información en un lugar seguro. Puedes personalizar la información en tu perfil una vez adentrado a la plataforma.</p>
                     <p style="font-size: 16px; margin-top: 30px;">Atentamente,<br><strong>El equipo de IATIBET</strong></p>
                 </div>
             `
@@ -295,6 +299,9 @@ module.exports = async (req, res) => {
             } else {
                 user = new User({ name: gData.name, email: gData.email, googleId: gData.googleId, avatar: gData.avatar, provider: 'google' });
                 await user.save();
+                
+                // Enviar correo de bienvenida al registrarse la primera vez con Google
+                sendWelcomeEmail(gData.email, gData.name, null, 'google').catch(console.error);
             }
             return res.json({ success: true, token: generateToken(user), user: formatUser(user) });
         } catch (err) {
