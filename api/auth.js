@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const https = require('https');
 const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 const mailUser = process.env.EMAIL_USER || 'soporteiatibetepisodios@gmail.com';
 const mailPassword = process.env.EMAIL_PASS || 'dkgdrsqmmknezahz';
@@ -51,6 +52,38 @@ async function sendWelcomeEmail(email, name, password, provider = 'local') {
     }
 }
 
+async function sendPasswordResetEmail(email, name, resetUrl) {
+    try {
+        console.log(`[BACKEND] Iniciando envío de correo de recuperación a: ${email}`);
+        
+        const mailOptions = {
+            from: `"IATIBET" <${mailUser}>`,
+            to: email,
+            subject: 'Recuperación de Contraseña - IATIBET',
+            html: `
+                <div style="font-family: 'Inter', sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; background-color: #f9f9fa; border-radius: 8px;">
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h1 style="color: #6a1b9a;">Restablece tu Contraseña</h1>
+                    </div>
+                    <p style="font-size: 16px;">Hola <strong>${name}</strong>,</p>
+                    <p style="font-size: 16px;">Recibimos una solicitud para restablecer la contraseña de tu cuenta asociada a este correo electrónico.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${resetUrl}" style="background-color: #6a1b9a; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">Restablecer Contraseña</a>
+                    </div>
+                    <p style="font-size: 14px; color: #666;">Si el botón no funciona, copia y pega el siguiente enlace en tu navegador:</p>
+                    <p style="font-size: 14px; color: #0056b3; word-break: break-all;"><a href="${resetUrl}" style="color: #6a1b9a;">${resetUrl}</a></p>
+                    <p style="font-size: 14px; color: #666;">Este enlace expirará en 1 hora. Si no solicitaste un cambio de contraseña, simplemente ignora este correo y tu cuenta seguirá segura.</p>
+                    <p style="font-size: 16px; margin-top: 30px;">Atentamente,<br><strong>El equipo de IATIBET</strong></p>
+                </div>
+            `
+        };
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`[BACKEND] ✅ Correo de recuperación enviado con éxito a ${email}. Info ID: ${info.messageId}`);
+    } catch (error) {
+        console.error(`[BACKEND] ❌ Error crítico enviando correo de recuperación a ${email}:`, error);
+    }
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || 'iatibet_zureon_jwt_secret_2024';
 const GOOGLE_CLIENT_ID    = process.env.GOOGLE_CLIENT_ID    || '';
 const GITHUB_CLIENT_ID    = process.env.GITHUB_CLIENT_ID    || '';
@@ -78,6 +111,8 @@ try { User = mongoose.model('User'); } catch {
         activeMembership:    { type: mongoose.Schema.Types.ObjectId, ref: 'Membership', default: null },
         membershipExpiresAt: { type: Date, default: null },
         membershipPlan:      { type: String, default: null },
+        resetPasswordToken:  { type: String },
+        resetPasswordExpires:{ type: Date },
         createdAt:   { type: Date, default: Date.now },
         updatedAt:   { type: Date, default: Date.now }
     });
@@ -229,6 +264,51 @@ module.exports = async (req, res) => {
             success: true, token,
             user: { id: user._id, name: user.name, email: user.email, role: user.role, hasMembership: hasMem, membershipPlan: user.membershipPlan }
         });
+    }
+
+    // ── POST /api/auth/forgot-password ───────────────────────────
+    if (req.method === 'POST' && url.endsWith('/forgot-password')) {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ success: false, message: 'El correo es requerido' });
+
+        const user = await User.findOne({ email });
+        // Por seguridad, retornamos éxito incluso si no existe el correo
+        if (!user) return res.json({ success: true, message: 'Si el correo existe, se ha enviado un enlace de recuperación.' });
+
+        if (user.provider && user.provider !== 'local') {
+            return res.status(400).json({ success: false, message: 'Esta cuenta utiliza un proveedor externo (Google/GitHub) para iniciar sesión.' });
+        }
+
+        const resetToken = crypto.randomBytes(20).toString('hex');
+        user.resetPasswordToken = resetToken;
+        user.resetPasswordExpires = Date.now() + 3600000; // 1 hora
+        await user.save();
+
+        const resetUrl = `${APP_URL}/reset-password.html?token=${resetToken}`;
+        await sendPasswordResetEmail(user.email, user.name, resetUrl);
+
+        return res.json({ success: true, message: 'Si el correo existe, se ha enviado un enlace de recuperación.' });
+    }
+
+    // ── POST /api/auth/reset-password ────────────────────────────
+    if (req.method === 'POST' && url.endsWith('/reset-password')) {
+        const { token, newPassword } = req.body;
+        if (!token || !newPassword) return res.status(400).json({ success: false, message: 'Token y nueva contraseña son requeridos' });
+        if (newPassword.length < 6) return res.status(400).json({ success: false, message: 'La contraseña debe tener al menos 6 caracteres' });
+
+        const user = await User.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        if (!user) return res.status(400).json({ success: false, message: 'El enlace de recuperación es inválido o ha expirado.' });
+
+        user.password = newPassword;
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save();
+
+        return res.json({ success: true, message: 'Contraseña actualizada exitosamente.' });
     }
 
     // ── GET /api/auth/me ─────────────────────────────────────────
